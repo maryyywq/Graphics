@@ -10,7 +10,11 @@ MAX_SCALE = 4.0   # максимальный масштаб (объект не �
 
 # Матрица переноса в однородных координатах
 def translation_matrix(tx: float, ty: float, tz: float) -> np.ndarray:
-    # Матрица переноса в однородных координатах
+    # Формула
+    #   [ 1  0  0  tx ]
+    #   [ 0  1  0  ty ]
+    #   [ 0  0  1  tz ]
+    #   [ 0  0  0  1  ]
     M = np.eye(4, dtype=float)   # создаём единичную матрицу 4x4
     M[0, 3] = tx   
     M[1, 3] = ty   
@@ -19,6 +23,11 @@ def translation_matrix(tx: float, ty: float, tz: float) -> np.ndarray:
 
 # Матрица масштабирования по осям
 def scale_matrix(sx: float, sy: float, sz: float) -> np.ndarray:
+    # Формула 
+    #   [ sx  0   0   0 ]
+    #   [  0  sy   0   0 ]
+    #   [  0   0  sz   0 ]
+    #   [  0   0   0   1 ]
     M = np.eye(4, dtype=float)
     M[0, 0] = sx   
     M[1, 1] = sy   
@@ -89,7 +98,7 @@ def look_at_matrix(camera_pos: np.ndarray, target: np.ndarray, up: np.ndarray) -
         zc = zc / zn                 # нормализуем (делаем единичной длины)
 
     # Правая ось камеры (перпендикуляр к направлению взгляда и вектору "вверх")
-    xc = np.cross(zc, UP)
+    xc = np.cross(zc, UP) # векторное произведение
     xn = np.linalg.norm(xc)
     if xn < 1e-9:                    # если вектор "вверх" параллелен направлению взгляда
         xc = np.array([1.0, 0.0, 0.0])  # берём ось X по умолчанию
@@ -262,7 +271,7 @@ class GLWidget(QtWidgets.QWidget):
         x = r * math.cos(el) * math.cos(az)
         y = r * math.sin(el)
         z = r * math.cos(el) * math.sin(az)
-        # Позиция камеры = смещение от цели
+        # смещение камеры от цели + точка цели = абсолютное положение камеры
         self.camera_pos = np.array([x, y, z], dtype=float) + self.camera_target
         # Посылаем сигнал об изменении
         self.cameraChanged.emit(float(self.camera_pos[0]), float(self.camera_pos[1]), float(self.camera_pos[2]))
