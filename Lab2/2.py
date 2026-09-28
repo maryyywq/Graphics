@@ -496,11 +496,11 @@ class ZBufferScanline(QtCore.QObject):
 
     # Считает глубину z точки на плоскости полигона pid
     # в логических координатах (x_log, y_log).
-    # Формула выведена из уравнения плоскости A·x + B·y + C·z + D = 0
+    # Формула выведена из уравнения плоскости A*x + B*y + C*z + D = 0
     # и связи логических координат с мировыми:
-    # x = x_log · z / f,   y = y_log · z / f
+    # x = x_log * z / f,   y = y_log * z / f
     # Отсюда:
-    # z = -D·f / (A·x_log + B·y_log + C·f)
+    # z = -D*f / (A*x_log + B*y_log + C*f)
     # Возвращает число (глубину) или None, если глубину посчитать нельзя
     def z_at(self, pid, x_log, y_log):
         # Берём уравнение плоскости для этого полигона.
@@ -510,7 +510,7 @@ class ZBufferScanline(QtCore.QObject):
             return None
         # Распаковываем коэффициенты уравнения плоскости
         a, b, c, d = plane
-        # Знаменатель формулы: A·x_log + B·y_log + C·f.
+        # Знаменатель формулы: A*x_log + B*y_log + C*f.
         # Если он равен нулю — плоскость параллельна лучу зрения, глубину определить нельзя
         denom = a * x_log + b * y_log + c * self.focal
         if abs(denom) < 1e-12:
@@ -531,7 +531,7 @@ class ZBufferScanline(QtCore.QObject):
     # 3. Между парой рёбер для каждого пиксела считаем глубину z
     # и оставляем только тот полигон, который ближе всех к камере.
     # Параметры:
-    # y_px       — номер строки (0 = верхняя, H-1 = нижняя)
+    # y_px — номер строки (0 = верхняя, H-1 = нижняя)
     # start_time — метка времени начала 
     def _process_scanline(self, y_px, start_time):
         # Защита от выхода за границы экрана
@@ -819,6 +819,9 @@ class GLWidget(QtWidgets.QWidget):
         # что уже записана в z-буфере. Меньше = ближе к камере
         return z_edge < z_frame - 1e-12
 
+    # Метод вызывается Qt всякий раз, когда виджет нужно перерисовать.
+    # Рисует фон, полигоны, оси, визуализацию работы алгоритма (сканирующую строку,
+    # активные интервалы, точки пересечений), полосу z-буфера и строку состояния
     def paintEvent(self, event):
         qp = QtGui.QPainter(self)
         qp.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -965,7 +968,8 @@ class GLWidget(QtWidgets.QWidget):
         n_act = len(self.algorithm.active_polygons)
         qp.drawText(10, 40, f"Активных полигонов: {n_act}    "
                              f"Активных рёбер: {len(self.algorithm.active_edges)}")
-
+        
+    # Локальная функция — рисует полосу z-буфера в нижней части окна
     def _draw_zbuffer_strip(self, qp, w, h):
         strip_h = 60
         y0 = h - strip_h - 10
@@ -1015,6 +1019,9 @@ class GLWidget(QtWidgets.QWidget):
             color = QtGui.QColor(shade, shade, min(255, shade + 30))
             qp.fillRect(inner_x0 + px, inner_y0, 1, inner_h, color)
 
+    # Вызывается по сигналу rowCompleted
+    # Копирует обработанную строку y из frame_pid в QImage: каждому пикселу
+    # присваивается цвет соответствующего полигона (или фону, если pid = -1)
     def on_engine_row_completed(self, y):
         if self.frame_image is None:
             return
@@ -1043,7 +1050,9 @@ class GLWidget(QtWidgets.QWidget):
         if self.algorithm.running:
             self.update(0, y, max_x, 2)
             
-    #  Управление мышью / клавиатурой
+    # Обработчик нажатия кнопки мыши. Левая кнопка запускает вращение камеры
+    # вокруг сцены (режим orbit). Если алгоритм уже завершён — сбрасывает его,
+    # чтобы можно было начать заново
     def mousePressEvent(self, ev):
         if self.algorithm.running:
             return
@@ -1064,6 +1073,9 @@ class GLWidget(QtWidgets.QWidget):
             self._orbit_start_mouse = ev.pos()
         self.last_mouse = ev.pos()
 
+    # Обработчик перемещения мыши с зажатой кнопкой. Если активен режим
+    # «orbit_cam», пересчитывает положение камеры по сферическим координатам
+    # (азимут и угол места) и заново готовит проекции
     def mouseMoveEvent(self, ev):
         if self.algorithm.running:
             return
@@ -1092,10 +1104,15 @@ class GLWidget(QtWidgets.QWidget):
             self.update()
         self.last_mouse = pos
 
+    # Обработчик отпускания кнопки мыши. Сбрасывает режим мыши
     def mouseReleaseEvent(self, ev):
         self.mouse_mode = None
         self.last_mouse = None
 
+    # Обработчик нажатий клавиш:
+    #   R — сброс алгоритма,
+    #   Space — мгновенная отрисовка,
+    #   S — шаг на одну строку вручную
     def keyPressEvent(self, ev):
         k = ev.key()
         if k == QtCore.Qt.Key_R:
@@ -1116,6 +1133,8 @@ class GLWidget(QtWidgets.QWidget):
                     self.algorithm.paused = True
         self.update()
 
+    # Сброс алгоритма: очищает буферы, обнуляет счётчик строк, стирает QImage,
+    # включает отображение осей
     def reset_algorithm(self):
         self.step_mode = False
         self.algorithm.reset()
@@ -1123,6 +1142,8 @@ class GLWidget(QtWidgets.QWidget):
         self.show_axes = True
         self.update()
 
+    # Запуск прогрессивного режима: скрывает оси и включает таймер
+    # который обрабатывает по одной строке за тик
     def start_progressive(self):
         if self.algorithm.finished:
             self.reset_algorithm()
@@ -1131,10 +1152,14 @@ class GLWidget(QtWidgets.QWidget):
         self.algorithm.start()
         self.update()
 
+    # Остановка прогрессивного режима
     def stop_progressive(self):
         self.algorithm.pause()
         self.update()
 
+    # Мгновенная отрисовка всего кадра: выключает обновления виджета на время
+    # работы (чтобы не было мерцания), стирает QImage, запускает полный проход
+    # алгоритма и по завершении включает перерисовку
     def start_instant(self):
         if self.algorithm.finished:
             self.reset_algorithm()
@@ -1148,7 +1173,7 @@ class GLWidget(QtWidgets.QWidget):
             self.setUpdatesEnabled(True)
             self.update()
 
-#  Главное окно
+# Главное окно приложения: содержит виджет со сценой и панель управления
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1158,6 +1183,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.create_controls()
         self.resize(1300, 780)
 
+    # Создаёт правую панель с кнопками управления алгоритмом,
+    # выбора сцены, панелями z-буфера и AEL, а также текстом подсказок
     def create_controls(self):
         panel = QtWidgets.QWidget(); layout = QtWidgets.QVBoxLayout(panel)
         layout.addWidget(QtWidgets.QLabel("<b>Управление алгоритмом</b>"))
@@ -1250,6 +1277,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui_timer.timeout.connect(self._refresh_visual_panels)
         self.ui_timer.start(120)
 
+    # Обновляет текстовые панели справа: панель состояния z-буфера
+    # и панель активных рёбер. Вызывается по таймеру каждые 120 мс
     def _refresh_visual_panels(self):
         alg = self.gl.algorithm
         zb = alg.get_zbuffer_row()
@@ -1284,6 +1313,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 lines.append(f"... ещё {len(edges) - 40}")
             self.ael_label.setText("\n".join(lines))
 
+    # Обработчики нажатий кнопок панели управления.
+    # Каждый из них вызывает соответствующий метод виджета сцены
     def on_instant_clicked(self):
         if self.gl.algorithm.finished:
             self.gl.reset_algorithm()
@@ -1314,13 +1345,15 @@ class MainWindow(QtWidgets.QMainWindow):
     def on_reset_clicked(self):
         self.gl.reset_algorithm()
 
+    # Генерирует демонстрационную сцену (прямоугольник + треугольник)
     def on_demo_scene(self):
         self.gl.scene = generate_demo_scene()
         self.gl.algorithm.scene = self.gl.scene
         self.gl.algorithm._prepare_projection()
         self.gl.reset_algorithm()
         self.gl.update()
-
+        
+    # Генерирует случайную сцену из 5–6 полигонов и сбрасывает алгоритм
     def on_random_scene(self):
         self.gl.scene = generate_random_scene(random.randint(5, 6))
         self.gl.algorithm.scene = self.gl.scene
