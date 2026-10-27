@@ -28,7 +28,7 @@ uniform float uIl; // интенсивность источника света
 out float vIntensity; // выходная интенсивность освещения
 
 void main() {
-    vec4 posWorld = vec4(aPos, 1.0); // позиция в мировых координатах
+    vec4 posWorld = vec4(aPos, 1.0); // позиция вершины в мировых координатах
     vec3 N = normalize(aNormal); // нормализуем нормаль
     vec3 L = normalize(uLightPosWorld - posWorld.xyz); // направление к свету
     
@@ -48,7 +48,7 @@ FRAG_SHADER = """
 in float vIntensity; // интенсивность из вершинного шейдера
 out vec4 FragColor; // Финальный цвет пикселя в формате RGBA (Красный, Зеленый, Синий, Альфа/прозрачность)
 
-uniform vec3 uColor; // цвет объекта
+uniform vec3 uColor; // цвет объекта (изначально белый)
 
 void main() {
     float v = clamp(vIntensity, 0.0, 1.0); // ограничиваем интенсивность
