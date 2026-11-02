@@ -14,8 +14,6 @@ class ImageViewer(QMainWindow):
     def __init__(self):
         # Вызов конструктора родительского класса QMainWindow (создает базовое окно)
         super().__init__()
-        # Вызываем метод initUI. Он отрисует все кнопки, ползунки и графики на экране
-        self.initUI()
 
         # Переменные для хранения изображений
         self.original_image = None 
@@ -43,11 +41,23 @@ class ImageViewer(QMainWindow):
         self.update_timer = QTimer()
         self.update_timer.setSingleShot(True)
         self.update_timer.timeout.connect(self.apply_all_transforms)
+
+        # Порог бинаризации по умолчанию
+        self.binary_threshold = 128
+
+        # Отступ по оси X у гистограмм: чтобы крайние столбцы (яркость 0 и 255)
+        # не прятались под рамкой графика
+        self.hist_margin = 4
+
+        # Вызываем метод initUI. Он отрисует все кнопки, ползунки и графики на экране.
+        # Делаем это в конце, чтобы все атрибуты класса уже существовали,
+        # когда Qt начнет присылать события (resizeEvent и т.п.)
+        self.initUI()
         
     def initUI(self):
         # Настройка основного окна приложения
         self.setWindowTitle('Лабораторная работа 5')
-        self.setGeometry(100, 100, 1200, 800) # Отступ от левого верхнего угла (100,100) и размеры окна 1200x800
+        self.setGeometry(100, 100, 1400, 900) # Отступ от левого верхнего угла (100,100) и размеры окна 1400x900
         
         # Создание центрального виджета
         central_widget = QWidget()
@@ -205,8 +215,9 @@ class ImageViewer(QMainWindow):
         right_panel.addWidget(color_group)
         
         # Добавление левой и правой панелей в основной layout
-        main_layout.addLayout(left_panel, 2) 
-        main_layout.addLayout(right_panel, 1)
+        # Правой панели даем больше места, чтобы гистограммы не были "сплюснутыми" (256 столбцов)
+        main_layout.addLayout(left_panel, 3) 
+        main_layout.addLayout(right_panel, 2)
         
         # Изначальная настройка видимости элементов бинаризации
         self.on_binary_method_changed(self.binary_combo.currentText())
@@ -256,13 +267,33 @@ class ImageViewer(QMainWindow):
             # Конвертируем из BGR (формат OpenCV) в RGB (формат для отображения)
             self.original_array = cv2.cvtColor(self.original_array, cv2.COLOR_BGR2RGB)
             self.current_array = self.original_array.copy()
-            
-            # Обновляем интерфейс
-            self.update_display()
+
+            # Сбрасываем выделение и ползунки, чтобы новое изображение
+            # показывалось без преобразований от предыдущей картинки
+            self.selection_rect = None
+            self.selection_active = False
             self.reset_sliders()
-            self.clear_selection()
+            self.binary_threshold_slider.setValue(128)
+
+            # Гистограммы строим заново: наборы столбцов пересоздаются под новое изображение
             self.init_histogram()
+
+            # Обновляем изображение (гистограммы уже построены выше)
+            self.update_display(update_hist=False)
     
+    # Настройка столбцов гистограммы.
+    # У непустого столбца делаем обводку того же цвета: у гистограммы из 256 столбцов
+    # один столбец занимает меньше пикселя, и без обводки "иглы" (например, после
+    # бинаризации, когда есть только яркости 0 и 255) становятся невидимыми.
+    # У пустых столбцов обводку убираем, иначе они рисуют линию по всей оси X.
+    def style_hist_bars(self, patches, color):
+        for patch in patches:
+            if patch.get_height() > 0:
+                patch.set_linewidth(0.9)
+                patch.set_edgecolor(color)
+            else:
+                patch.set_linewidth(0.0)
+
     # Инициализация гистограмм при загрузке изображения
     def init_histogram(self):
         if self.current_array is None:
@@ -301,24 +332,28 @@ class ImageViewer(QMainWindow):
         # color - цвет столбиков
         
         counts_r, bins_r, patches_r = self.hist_canvas.axes[0].hist(r, bins=256, range=(0, 256), alpha=0.7, color='red')
+        self.style_hist_bars(patches_r, 'red')
         self.hist_canvas.axes[0].set_title('Красный канал', fontsize=title_font)
         self.hist_canvas.axes[0].set_xlabel('Яркость', fontsize=label_font)
         self.hist_canvas.axes[0].set_ylabel('Частота', fontsize=label_font)
 
         # Зеленый канал (ось 1)
         counts_g, bins_g, patches_g = self.hist_canvas.axes[1].hist(g, bins=256, range=(0, 256), alpha=0.7, color='green')
+        self.style_hist_bars(patches_g, 'green')
         self.hist_canvas.axes[1].set_title('Зеленый канал', fontsize=title_font)
         self.hist_canvas.axes[1].set_xlabel('Яркость', fontsize=label_font)
         self.hist_canvas.axes[1].set_ylabel('Частота', fontsize=label_font)
 
         # Синий канал (ось 2)
         counts_b, bins_b, patches_b = self.hist_canvas.axes[2].hist(b, bins=256, range=(0, 256), alpha=0.7, color='blue')
+        self.style_hist_bars(patches_b, 'blue')
         self.hist_canvas.axes[2].set_title('Синий канал', fontsize=title_font)
         self.hist_canvas.axes[2].set_xlabel('Яркость', fontsize=label_font)
         self.hist_canvas.axes[2].set_ylabel('Частота', fontsize=label_font)
 
         # Вычисленная яркость (ось 3)
         counts_y, bins_y, patches_y = self.hist_canvas.axes[3].hist(brightness, bins=256, range=(0, 256), alpha=0.7, color='gray')
+        self.style_hist_bars(patches_y, 'gray')
         self.hist_canvas.axes[3].set_title('Яркость', fontsize=title_font)
         self.hist_canvas.axes[3].set_xlabel('Яркость', fontsize=label_font)
         self.hist_canvas.axes[3].set_ylabel('Частота', fontsize=label_font)
@@ -329,6 +364,9 @@ class ImageViewer(QMainWindow):
             ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: format(int(x), ',')))
             # чуть отодвинем подпись Y чтобы не цеплялась за левую рамку
             ax.yaxis.labelpad = 6
+            # Небольшой отступ по X: иначе столбцы, попавшие в интервалы 0 и 255,
+            # рисуются вплотную к рамке и полностью под ней скрываются
+            ax.set_xlim(-self.hist_margin, 256 + self.hist_margin)
 
         # Сохраняем ссылки на столбцы гистограмм для последующего обновления
         self.hist_bars_r = patches_r
@@ -363,39 +401,39 @@ class ImageViewer(QMainWindow):
         counts_b, bins_b = np.histogram(b, bins=256, range=(0, 256))
         counts_y, bins_y = np.histogram(brightness, bins=256, range=(0, 256))
         
-        for i, (count, patch) in enumerate(zip(counts_r, self.hist_bars_r)):
-            patch.set_height(count) # Меняем высоту готового столбика на новое значение
-            patch.set_xy((bins_r[i], 0)) # Ставим его на правильное место по оси X
-        
-        for i, (count, patch) in enumerate(zip(counts_g, self.hist_bars_g)):
-            patch.set_height(count)
-            patch.set_xy((bins_g[i], 0))
-        
-        for i, (count, patch) in enumerate(zip(counts_b, self.hist_bars_b)):
-            patch.set_height(count)
-            patch.set_xy((bins_b[i], 0))
-        
-        for i, (count, patch) in enumerate(zip(counts_y, self.hist_bars_y)):
-            patch.set_height(count)
-            patch.set_xy((bins_y[i], 0))
+        # Обновляем высоты столбцов и их обводку 
+        for counts, patches, color in ((counts_r, self.hist_bars_r, 'red'),
+                                       (counts_g, self.hist_bars_g, 'green'),
+                                       (counts_b, self.hist_bars_b, 'blue'),
+                                       (counts_y, self.hist_bars_y, 'gray')):
+            for count, patch in zip(counts, patches):
+                patch.set_height(count) # Меняем высоту готового столбика на новое значение
+            self.style_hist_bars(patches, color)
         
         # Автоматически масштабируем оси Y для лучшего отображения
-        for ax in self.hist_canvas.axes:
-            ax.relim()
-            ax.autoscale_view()
+        # (вручную задаем лимиты, чтобы правый столбик на 255 не пропадал)
+        for ax, counts in zip(self.hist_canvas.axes, [counts_r, counts_g, counts_b, counts_y]):
+            # Отступ по X, чтобы крайние столбцы (0 и 255) не прятались под рамкой графика
+            ax.set_xlim(-self.hist_margin, 256 + self.hist_margin)
+            # Берем максимальную высоту столбика и добавляем 10% запаса сверху
+            max_h = max(1, np.max(counts))
+            ax.set_ylim(0, max_h * 1.1)
         
         # Перерисовываем гистограммы
         self.hist_canvas.draw_idle()
-    
+
     # преобразование numpy array в QImage
     # OpenCV хранит картинку как массив NumPy, а PyQt5 (для отображения) требует объект QImage
     def array_to_qimage(self, array):
+        # QImage требует непрерывный (C-contiguous) буфер в памяти
+        array = np.ascontiguousarray(array)
         height, width, channels = array.shape # Получаем размеры: высоту, ширину и количество каналов (3 для RGB)
         # bytes_per_line (шаг сканирования) — это объем памяти (в байтах), который занимает одна строка пикселей.
         bytes_per_line = channels * width # (3 канала * ширина) байт.
+        # QImage не копирует данные, поэтому array должен жить, пока картинка используется
         return QImage(array.data, width, height, bytes_per_line, QImage.Format_RGB888)
     
-     # Обновление отображения изображения и гистограмм
+    # Обновление отображения изображения и гистограмм
     def update_display(self, update_hist=True): 
         if self.current_array is not None:
             # Создаем копию для отображения
@@ -468,7 +506,13 @@ class ImageViewer(QMainWindow):
     def binary_threshold_changed(self, value):
         self.binary_threshold = value
         self.binary_threshold_label.setText(str(value))
-    
+
+    # Есть ли реально выделенная область (а не только включенный режим выделения).
+    # Нужна, чтобы преобразования не применялись к "пустому" прямоугольнику 0*0
+    def has_selection(self):
+        return (self.selection_active and self.selection_rect is not None
+                and self.selection_rect[2] > 0 and self.selection_rect[3] > 0)
+
     # Применение преобразований яркости и контрастности к изображению
     def apply_all_transforms(self):
         # Если картинка не загружена, ничего не делаем
@@ -477,7 +521,7 @@ class ImageViewer(QMainWindow):
         
         # 1. Обработка выделенной области
 
-        if self.selection_active and self.selection_rect:
+        if self.has_selection():
             # Распаковываем координаты выделенного прямоугольника
             # x, y — координаты левого верхнего угла прямоугольника 
             # (отступ от левого края картинки и от верхнего края соответственно)
@@ -547,105 +591,114 @@ class ImageViewer(QMainWindow):
         method = self.binary_combo.currentText()
 
         # 1. Обработка выделенной области 
-
-        # Определяем область для обработки
-        if self.selection_active and self.selection_rect:
+        if self.has_selection():
+            # Определяем область для обработки
             x, y, w, h = self.selection_rect
-            roi = self.current_array[y:y+h, x:x+w].copy()
-            
-            # Переводим в оттенки серого (Grayscale).
-            # Бинаризация работает с яркостью, а не с цветом. 
-            # Функция cvtColor сама применит формулу Y = 0.299R + 0.5876G + 0.114B.
-            # В итоге из 3-канальной матрицы (RGB) получится 1-канальная (H x W).
-            gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
-            
-            # Применяем выбранный метод бинаризации
-            if method == 'Фиксированный порог':
-                # Берем значение порога с ползунка (от 0 до 255)
-                threshold = self.binary_threshold_slider.value()
 
-                # cv2.threshold принимает 4 параметра:
-                # 1. gray - исходное одноканальное (серое) изображение.
-                # 2. threshold - пороговое значение T, с которым сравниваем пиксели.
-                # 3. 255 - максимальное значение (белый цвет)
-                # 4. cv2.THRESH_BINARY - тип обработки: если пиксель > T, он становится 255, иначе 0.
-                # Возвращает кортеж: (использованный_порог, бинарное_изображение).
-                # Первый элемент пишем в '_', так как он нам не нужен
-                _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
-            elif method == 'Адаптивный порог':
+            # Берем область и переводим в float для ручного расчета яркости
+            roi_float = self.current_array[y:y+h, x:x+w].astype(np.float32)
+            # Ручной перевод в grayscale
+            gray = self.rgb_to_gray(roi_float)
 
-                # Адаптивная бинаризация
-                # 1. gray - исходное одноканальное (серое) изображение.
-                # 2. 255 - значение (белый цвет), если пиксель > локального порога
-                # 3. cv2.ADAPTIVE_THRESH_GAUSSIAN_C - способ вычисления
-                # 4. cv2.THRESH_BINARY - тип(каким пиксель станет после
-                # сравнения с порогом) (пиксель > T -> 255, иначе -> 0)
-                # 5. 11 - размер окрестности (11*11 пикселей), должен быть нечётным
-                # 6. 2 - константа, вычитаемая из среднего
-                binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                             cv2.THRESH_BINARY, 11, 2)
-            else:  # Метод Оцу
-                # 1. gray - исходное одноканальное (серое) изображение.
-                # 2. 0 - заглушка (порог). При использовании Оцу это значение игнорируется, 
-                # так как алгоритм сам найдет оптимальный порог.
-                # 3. 255 - значение (белый цвет), если пиксель > найденного порога.
-                # 4. cv2.THRESH_BINARY + cv2.THRESH_OTSU - комбинированный тип:
-                # THRESH_BINARY задает правило (пиксель > T -> 255, иначе -> 0),
-                # а THRESH_OTSU используется для вычисления порога.
-                # Возвращает: (найденный_порог, бинарное_изображение). 
-                # Порог пишем в '_', так как для нас он не важен.
-                _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            
-            # Преобразуем обратно в RGB
-            binary_rgb = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
-            
-            # Обновляем только выделенную область
+            # Применяем выбранный метод
+            binary = self.binarize(gray, method)
+
+            # Собираем обратно в RGB
+            binary_rgb = np.stack((binary, binary, binary), axis=-1)
+
+            # Обновляем ТОЛЬКО выделенную область
             self.current_array[y:y+h, x:x+w] = binary_rgb
-        else: 
+        else:
+            # 2. Все изображение
 
-        # 2. Все изображение
+            # Ручной перевод в grayscale
+            gray = self.rgb_to_gray(self.current_array.astype(np.float32))
 
-            # Обрабатываем все изображение
-            work_array = self.current_array.copy()
-            
-            # Преобразуем в grayscale
-            gray = cv2.cvtColor(work_array, cv2.COLOR_RGB2GRAY)
-            
-            if method == 'Фиксированный порог':
-                threshold = self.binary_threshold_slider.value()
-                _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
-            elif method == 'Адаптивный порог':
-                binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                             cv2.THRESH_BINARY, 11, 2)
-            else:  # Метод Оцу
-                _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            
-            # Преобразуем обратно в RGB
-            self.current_array = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
-        
+            # Применяем выбранный метод
+            binary = self.binarize(gray, method)
+
+            # Собираем обратно в RGB
+            self.current_array = np.stack((binary, binary, binary), axis=-1)
+
         self.update_display()
+
+    # Перевод RGB -> яркость (серый) по формуле из лекции: Y = 0.299R + 0.5876G + 0.114B
+    def rgb_to_gray(self, rgb_float):
+        gray = 0.299 * rgb_float[:,:,0] + 0.5876 * rgb_float[:,:,1] + 0.114 * rgb_float[:,:,2]
+        # Ограничиваем диапазон и переводим обратно в uint8
+        return np.clip(gray, 0, 255).astype(np.uint8)
+
+    # Бинаризация серого изображения выбранным методом
+    def binarize(self, gray, method):
+        if method == 'Фиксированный порог':
+            threshold = self.binary_threshold_slider.value()
+            # если пиксель > порог -> 255, иначе -> 0
+            return np.where(gray > threshold, 255, 0).astype(np.uint8)
+
+        if method == 'Адаптивный порог':
+            # Адаптивная бинаризация
+            # 1. gray - исходное одноканальное (серое) изображение.
+            # 2. 255 - значение (белый цвет), если пиксель > локального порога
+            # 3. cv2.ADAPTIVE_THRESH_GAUSSIAN_C - способ вычисления
+            # 4. cv2.THRESH_BINARY - тип (каким пиксель станет после
+            #    сравнения с порогом): пиксель > T -> 255, иначе -> 0
+            # 5. block - размер окрестности (11*11 пикселей), должен быть нечётным
+            #    и не больше самого изображения (важно для маленького выделения)
+            # 6. 2 - константа, вычитаемая из среднего
+
+            # 1. Защита от слишком маленького выделения (окресность 11*11)
+            block = min(11, gray.shape[0], gray.shape[1])
+            # 2. OpenCV требует, чтобы размер окрестности был строго нечетный
+            if block % 2 == 0:
+                block -= 1
+            # 3. Минимальный допустимый размер окна в OpenCV для адаптивного порога — это 3
+            block = max(3, block)
+            return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                         cv2.THRESH_BINARY, block, 2)
+
+        # Метод Оцу
+        # 1. gray - исходное одноканальное (серое) изображение.
+        # 2. 0 - заглушка (порог). При использовании Оцу это значение игнорируется, 
+        # так как алгоритм сам найдет оптимальный порог.
+        # 3. 255 - значение (белый цвет), если пиксель > найденного порога.
+        # 4. cv2.THRESH_BINARY + cv2.THRESH_OTSU - комбинированный тип:
+        # THRESH_BINARY задает правило (пиксель > T -> 255, иначе -> 0),
+        # а THRESH_OTSU используется для вычисления порога.
+        # Возвращает: (найденный_порог, бинарное_изображение). 
+        # Порог пишем в '_', так как для нас он не важен.
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return binary
     
     # Преобразование изображения в оттенки серого
     def apply_grayscale(self):
         if self.current_array is None:
             return
-        # 1. Обработка выделенной области 
-
-        # Определяем область для обработки
-        if self.selection_active and self.selection_rect:
-            x, y, w, h = self.selection_rect
-            roi = self.current_array[y:y+h, x:x+w].copy()
             
-            # Преобразуем в grayscale и обратно в RGB 
-            gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
-            gray_rgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+        # 1. Обработка выделенной области 
+        if self.has_selection():
+            x, y, w, h = self.selection_rect   
+
+            # Переводим в float32, чтобы избежать переполнения при умножении
+            roi = self.current_array[y:y+h, x:x+w].copy().astype(np.float32)
+            
+            # Ручной расчет по формуле: gray = 0.299R + 0.5876G + 0.114B
+            gray = self.rgb_to_gray(roi)
+            
+            # R' = G' = B' = серый (собираем 3 одинаковых канала в один массив)
+            gray_rgb = np.stack((gray, gray, gray), axis=-1)
             
             # Обновляем только выделенную область
             self.current_array[y:y+h, x:x+w] = gray_rgb
+            
         else:
             # 2. Обрабатываем все изображение
-            gray = cv2.cvtColor(self.current_array, cv2.COLOR_RGB2GRAY)
-            self.current_array = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+            roi = self.current_array.copy().astype(np.float32)
+            
+            # Ручной расчет
+            gray = self.rgb_to_gray(roi)
+            
+            # R' = G' = B' = серый
+            self.current_array = np.stack((gray, gray, gray), axis=-1)
         
         self.update_display()
     
@@ -657,7 +710,7 @@ class ImageViewer(QMainWindow):
         # 1. Обработка выделенной области 
         
         # Определяем область для обработки
-        if self.selection_active and self.selection_rect:
+        if self.has_selection():
             x, y, w, h = self.selection_rect
             # Инвертируем цвета в выделенной области
             self.current_array[y:y+h, x:x+w] = 255 - self.current_array[y:y+h, x:x+w]
@@ -677,7 +730,7 @@ class ImageViewer(QMainWindow):
         # 1. Обработка выделенной области 
 
         # Определяем область для обработки
-        if self.selection_active and self.selection_rect:
+        if self.has_selection():
             x, y, w, h = self.selection_rect
             roi = self.current_array[y:y+h, x:x+w].copy()
             
@@ -807,7 +860,7 @@ class ImageViewer(QMainWindow):
     def image_mouse_release(self, event):
         if self.selection_active and self.selection_start is not None:
             self.selection_start = None
-            if self.selection_rect[2] > 0 and self.selection_rect[3] > 0:
+            if self.selection_rect is not None and self.selection_rect[2] > 0 and self.selection_rect[3] > 0:
                 # Показываем информацию о размере выделенной области
                 self.statusBar().showMessage(f'Выделена область: {self.selection_rect[2]}x{self.selection_rect[3]} пикселей')
             else:
@@ -815,7 +868,9 @@ class ImageViewer(QMainWindow):
     
     # Обработчик изменения размера окна - просто перерисовываем изображение
     def resizeEvent(self, event):
-        self.update_display()
+        # На случай, если событие пришло до полной инициализации окна
+        if getattr(self, 'image_label', None) is not None:
+            self.update_display()
         super().resizeEvent(event)
 
 
