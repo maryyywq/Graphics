@@ -540,7 +540,7 @@ void main() {
         vec3 ambient = mix(uAmbientGround, uAmbientSky, N.y * 0.5 + 0.5) * base; // подсветка (небо/земля)
         vec3 direct = uLightColor * base * ndl * shadow; // прямой свет от солнца
         vec3 specular = uLightColor * uSpecular * spec * shadow; // блик от солнца
-        color = ambient + direct + specular + uEmissive; // суммируем всё
+        color = ambient + direct + uEmissive + specular; // суммируем всё
 
         for (int i = 0; i < 8; ++i) { // цикл по лампам (до 8)
             if (i >= uPointCount) break;
@@ -939,7 +939,7 @@ class Scene:
         # Длина пути 210 м; балласт — вытянутый блок с повторением текстуры вдоль оси X.
         track_length = 210.0
         ballast = self.B(b, "ballast")
-        # Балласт — длинный блок 210×0.13×4 м (щебень под шпалами).
+        # Балласт — длинный блок (щебень под шпалами).
         # uv_scale=(48, 1) — текстура повторяется 48 раз вдоль X
         ballast.box((0, 0.055, 0), (track_length, 0.13, 4.0), uv_scale=(48, 1))
         # Шпалы — деревянные бруски поперёк пути.
@@ -1086,7 +1086,7 @@ class Scene:
                   (0, 0), (2.4, 0), (1.2, 1.8), (1.2, 1.8))
         # Свес крыши (софит) закрывает щель между стеной и скатами.
         soffit = B("ceiling")
-        # Плоский блок 15.1×0.13×5.06 над стенами
+        # Плоский блок над стенами
         soffit.box((1.0, 6.075, 10.35), (15.10, 0.13, 5.06))
         # Окна фасада (4 штуки)
         win_glass = B("glass_dark") # тёмное стекло
@@ -2054,7 +2054,7 @@ class Scene:
                 steel.cylinder((bc, 0.96, z), 0.12, 0.24, "y", 10)
                 dark.box((bc, 1.12, z), (0.38, 0.13, 0.30))
 
-    # Строит полуцилиндрическую крышу вагона, торцевые заглушки
+    # Строит полуэллипсическую крышу вагона, торцевые заглушки
     # и продольные рёбра жёсткости.
     # Параметры: b — Builder для накопления геометрии.
     def _build_roof(self, b: Builder) -> None:
